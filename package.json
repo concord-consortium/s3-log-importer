@@ -1,0 +1,26 @@
+{
+  "name": "s3-log-importer",
+  "version": "1.0.0",
+  "description": "Scripts to import Postgres log data into S3 as parquet files",
+  "main": "index.js",
+  "scripts": {
+    "db-create": "node scripts/db-create.js",
+    "pull-logs": "node scripts/pull-logs.js",
+    "normalize-timestamps": "node scripts/normalize-timestamps.js",
+    "push-logs": "node scripts/push-logs.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/concord-consortium/s3-log-importer.git"
+  },
+  "author": "Doug Martin",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/concord-consortium/s3-log-importer/issues"
+  },
+  "homepage": "https://github.com/concord-consortium/s3-log-importer#readme",
+  "dependencies": {
+    "dotenv": "^10.0.0",
+    "pg": "^8.7.1"
+  }
+}
