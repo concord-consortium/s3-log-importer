@@ -23,6 +23,7 @@ exports.remoteConnect = () => {
     database: process.env.REMOTE_DB_DATABASE,
     password: process.env.REMOTE_DB_PASSWORD,
     port: process.env.REMOTE_DB_PORT,
+    ssl: { rejectUnauthorized: false }
   })
 
   return client.connect().then(() => client)
