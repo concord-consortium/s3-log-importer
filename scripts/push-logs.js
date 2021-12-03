@@ -2,6 +2,7 @@ const {localConnect, remoteConnect} = require("./shared/db")
 const {die} = require("./shared/die")
 const {parse} = require("@concord-consortium/hstore-to-json")()
 const parquet = require('parquets');
+const mkdirp = require('mkdirp')
 
 const BATCH_SIZE = 100
 const dateRegEx = /^\d\d\d\d-\d\d-\d\d$/
@@ -20,6 +21,7 @@ const startOfDay = (ymd) => `${ymd}T00:00:00.000Z`
 const endOfDay = (ymd) => `${ymd}T23:59:59.999Z`
 const zeroPad = (n) => n < 10 ? `0${n}` : `${n}`
 const dateString = (date) => `${date.getUTCFullYear()}-${zeroPad(date.getUTCMonth() + 1)}-${zeroPad(date.getUTCDate())}`
+const s3Path = (date) => `${date.getUTCFullYear()}/${zeroPad(date.getUTCMonth() + 1)}/${zeroPad(date.getUTCDate())}/00`
 const toJsonString = (o) => JSON.stringify(parse(o))
 
 const schema = new parquet.ParquetSchema({
@@ -29,10 +31,11 @@ const schema = new parquet.ParquetSchema({
   activity: {type: "UTF8"},
   event: {type: "UTF8"},
   event_value: {type: "UTF8"},
-  time: {type: "INT_32"},
+  time: {type: "INT_64"},
   parameters: {type: "UTF8"},
   extras: {type: "UTF8"},
-  run_remote_endpoint: {type: "UTF8"}
+  run_remote_endpoint: {type: "UTF8"},
+  timestamp: {type: "INT_64"},
 });
 
 startDate = startOfDay(startDate)
@@ -66,11 +69,14 @@ localConnect().then(localClient => {
                   time: time || 0,
                   parameters: toJsonString(row.parameters),
                   extras: toJsonString(row.extras),
-                  run_remote_endpoint: run_remote_endpoint || ""
+                  run_remote_endpoint: run_remote_endpoint || "",
+                  timestamp: time || 0,
                 }
               })
 
-              const outputPath = `./output/${ymd}.parquet`
+              const subPath = `./output/${s3Path(row.time_date)}`
+              mkdirp.sync(subPath)
+              const outputPath = `${subPath}/${ymd}.parquet`
               if (rows.length > 0) {
                 // create parquet file
                 console.log(`Creating ${outputPath} with ${rows.length} rows`)
