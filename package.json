@@ -22,7 +22,9 @@
   },
   "homepage": "https://github.com/concord-consortium/s3-log-importer#readme",
   "dependencies": {
+    "@concord-consortium/hstore-to-json": "^1.0.3",
     "dotenv": "^10.0.0",
+    "parquets": "^0.10.10",
     "pg": "^8.7.1",
     "pg-cursor": "^2.7.1",
     "pg-format": "^1.0.4"
