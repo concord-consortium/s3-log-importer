@@ -105,3 +105,6 @@ dist
 
 # test output
 output/
+
+# s3 lightsail keys
+keys/

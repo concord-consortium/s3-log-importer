@@ -26,10 +26,12 @@ const createSchema = (client) => {
     remote_id integer PRIMARY KEY,
     application character varying(255),
     time timestamp without time zone,
+    timestamp timestamp without time zone,
     status smallint
   )
   `
   const createTimestampIndexQuery = "CREATE INDEX IF NOT EXISTS time_idx ON logs_meta (time)"
+  const createTimestampIndexQuery = "CREATE INDEX IF NOT EXISTS timestamp_idx ON logs_meta (timestamp)"
   const createStatusIndexQuery = "CREATE INDEX IF NOT EXISTS status_idx ON logs_meta (status)"
   const createApplicationIndexQuery = "CREATE INDEX IF NOT EXISTS application_idx ON logs_meta (application)"
   return client.query(createTableQuery)

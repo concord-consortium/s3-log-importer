@@ -17,4 +17,14 @@ Copy the .env.sample file to .env and fill in the values.
 3. `npm run pull-logs <START-ID> <END-ID>` - pulls metadata from the remote log table into the local database.
 4. `npm run get-times` - returns the min and max times from the local and remote database.
 5. `npm run normalize-timestamps` - normalizes all the timestamps in the local database.
-6. `npm run push-logs <START-DATE> [<END-DATE>]` - pulls and normalizes parameters and extras in remote log table and creates and saves parquet file on S3.  If END-DATE is not provided it defaults to START-DATE (to push 1 day's worth)
+6. `npm run create-parquet-files <START-DATE> [<END-DATE>]` - pulls and normalizes parameters and extras in remote log table and creates and saves parquet files locally.  If END-DATE is not provided it defaults to START-DATE (to push 1 day's worth)
+
+## Uploading to S3
+
+Once you have run all 6 scripts you can upload the parquet files to S3 using this command:
+
+`cd output && aws s3 sync . s3://BUCKETNAME/processed_logs/` where BUCKETNAME is `log-ingester-qa` or `log-ingester-production`.  Before running make sure you have exported the correct aws profile to write to the buckets, eg:
+
+`export AWS_PROFILE=qa`
+
+(the aws cli is used instead of the scripts writing directly to S3 as I'm sure it is more performant)

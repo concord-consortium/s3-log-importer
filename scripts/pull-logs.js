@@ -3,7 +3,7 @@ const {die} = require("./shared/die")
 const format = require('pg-format');
 const Cursor = require("pg-cursor")
 
-const BATCH_SIZE = 100
+const BATCH_SIZE = 1000
 
 const [_node, _script, ...rest] = process.argv
 if (rest.length !== 2) {
@@ -40,9 +40,9 @@ localConnect().then(localClient => {
             console.log(`${batchNum++}: Found ${rows.length} rows in batch on remote database, inserting into local database`)
             const values = rows.map(row => {
               const {id, application, time} = row
-              return [id, application, time, 0]
+              return [id, application, time, time, 0]
             })
-            return localClient.query(format("INSERT INTO logs_meta (remote_id, application, time, status) VALUES %L ON CONFLICT (remote_id) DO NOTHING", values))
+            return localClient.query(format("INSERT INTO logs_meta (remote_id, application, time, timestamp, status) VALUES %L ON CONFLICT (remote_id) DO NOTHING", values))
               .then(() => read())
           });
         })();

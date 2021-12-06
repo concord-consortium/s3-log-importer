@@ -9,7 +9,7 @@
     "pull-logs": "node scripts/pull-logs.js",
     "get-times": "node scripts/get-times.js",
     "normalize-timestamps": "node scripts/normalize-timestamps.js",
-    "push-logs": "node scripts/push-logs.js"
+    "create-parquet-files": "node scripts/create-parquet-files.js"
   },
   "repository": {
     "type": "git",
