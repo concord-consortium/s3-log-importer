@@ -30,13 +30,15 @@ const createSchema = (client) => {
     status smallint
   )
   `
-  const createTimestampIndexQuery = "CREATE INDEX IF NOT EXISTS time_idx ON logs_meta (time)"
+  const createTimeIndexQuery = "CREATE INDEX IF NOT EXISTS time_idx ON logs_meta (time)"
   const createTimestampIndexQuery = "CREATE INDEX IF NOT EXISTS timestamp_idx ON logs_meta (timestamp)"
   const createStatusIndexQuery = "CREATE INDEX IF NOT EXISTS status_idx ON logs_meta (status)"
   const createApplicationIndexQuery = "CREATE INDEX IF NOT EXISTS application_idx ON logs_meta (application)"
   return client.query(createTableQuery)
+    .then(() => client.query(createTimeIndexQuery))
     .then(() => client.query(createTimestampIndexQuery))
     .then(() => client.query(createStatusIndexQuery))
+    .then(() => client.query(createApplicationIndexQuery))
     .then(() => {
       console.log("logs_meta table and indices created (if not exist).")
     })
