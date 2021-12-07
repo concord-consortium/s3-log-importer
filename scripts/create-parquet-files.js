@@ -3,7 +3,6 @@ const {die} = require("./shared/die")
 const {parse} = require("@concord-consortium/hstore-to-json")()
 const parquet = require('parquets');
 const mkdirp = require('mkdirp')
-const format = require('pg-format');
 const Cursor = require("pg-cursor")
 
 const BATCH_SIZE = 1000
@@ -44,6 +43,91 @@ const schema = new parquet.ParquetSchema({
 startDate = startOfDay(startDate)
 endDate = endOfDay(endDate)
 
+const serializePromises = (promises) => {
+  return promises.reduce((prev, cur) => {
+    return prev.then(value => Promise.all([...value, cur]))
+  }, Promise.resolve([]))
+}
+
+// adapted from https://github.com/brianc/node-postgres/issues/1839#issuecomment-716840604
+const asyncCursor = async function* cursor(client, query, logPrefix) {
+  let batchNum = 1
+	const cursor = client.query(new Cursor(query.text, query.values));
+	try {
+		while (true) {
+			const rows = await new Promise((resolve, reject) => {
+				cursor.read(BATCH_SIZE, (error, rows) => {
+          if (error) {
+            reject(error)
+          } else {
+            if (rows.length > 0) {
+              console.log(`${logPrefix} ${batchNum++}: read ${rows.length} rows`)
+            }
+            resolve(rows)
+          }
+        });
+			});
+			if (rows.length === 0) break;
+			for (const row of rows) {
+				yield row;
+			}
+		}
+	} finally {
+		cursor.close();
+	}
+};
+
+const getIds = async (localClient, ymd) => {
+  const query = {
+    text: "SELECT remote_id, extract(epoch from timestamp) as timestamp FROM logs_meta WHERE time >= $1 AND time <= $2",
+    values: [startOfDay(ymd), endOfDay(ymd)]
+  }
+
+  const timestampMap = {}
+  const ids = []
+
+  const rows = asyncCursor(localClient, query, `${ymd} (get ids)`)
+	for await (const row of rows) {
+    timestampMap[row.remote_id] = row.timestamp
+    ids.push(parseInt(row.remote_id, 10))
+  }
+
+  return [ids, timestampMap]
+}
+
+const getLogData = async (remoteClient, ymd, timeDate, ids, timestampMap) => {
+  const subPath = `./output/${s3Path(timeDate)}`
+  mkdirp.sync(subPath)
+  const outputPath = `${subPath}/${ymd}.parquet`
+  console.log(`Creating ${outputPath} with ${ids.length} rows`)
+  const writer = await parquet.ParquetWriter.openFile(schema, outputPath)
+
+  const query = {
+    text: "SELECT id, session, username, application, activity, event, event_value, extract(epoch from time) as time, parameters, extras, run_remote_endpoint FROM logs WHERE id = ANY($1::int[]) ORDER BY id",
+    values: [ids]
+  }
+
+  const rows = asyncCursor(remoteClient, query, `${ymd} (get log data)`)
+  for await (const row of rows) {
+    const {id, session, username, application, activity, event, event_value, time, parameters, extras, run_remote_endpoint, timestamp} = row
+    await writer.appendRow({
+      session: session || "",
+      username: username || "",
+      application: application || "",
+      activity: activity || "",
+      event: event || "",
+      event_value: event_value || "",
+      time: time || 0,
+      parameters: toJsonString(row.parameters),
+      extras: toJsonString(row.extras),
+      run_remote_endpoint: run_remote_endpoint || "",
+      timestamp: timestampMap[id] || 0,
+    })
+  }
+  await writer.close()
+  console.log(`Created ${outputPath} with ${ids.length} rows`)
+}
+
 localConnect().then(localClient => {
   remoteConnect().then(remoteClient => {
     const query = {
@@ -55,74 +139,10 @@ localConnect().then(localClient => {
         const promises = result.rows.map(row => {
           const timeDate = row.time_date
           const ymd = dateString(timeDate)
-          const query = {
-            text: "SELECT remote_id, extract(epoch from timestamp) as timestamp FROM logs_meta WHERE time >= $1 AND time <= $2",
-            values: [startOfDay(ymd), endOfDay(ymd)]
-          }
-          return localClient.query(query)
-            .then(result => {
-              const timestampMap = {}
-              result.rows.forEach(row => {
-                timestampMap[row.remote_id] = row.timestamp
-              })
-              const ids = result.rows.map(row => row.remote_id)
-
-              const query = format("SELECT id, session, username, application, activity, event, event_value, extract(epoch from time) as time, parameters, extras, run_remote_endpoint FROM logs WHERE id IN (%L) ORDER BY id", ids)
-              const cursor = remoteClient.query(new Cursor(query))
-
-              let batchNum = 1
-              const createParquetFile = async () => {
-                const subPath = `./output/${s3Path(timeDate)}`
-                mkdirp.sync(subPath)
-                const outputPath = `${subPath}/${ymd}.parquet`
-                console.log(`Creating ${outputPath} with ${ids.length} rows`)
-                const writer = await parquet.ParquetWriter.openFile(schema, outputPath)
-
-                return new Promise((resolve, reject) => {
-                  (function read() {
-                    cursor.read(BATCH_SIZE, async (err, rows) => {
-                      if (err) {
-                        await writer.close()
-                        return reject(err);
-                      }
-
-                      if (!rows.length) {
-                        await writer.close()
-                        return resolve();
-                      }
-
-                      console.log(`${ymd} ${batchNum++}: inserting ${rows.length} rows into parquet file`)
-
-                      rows = rows.map(row => {
-                        const {id, session, username, application, activity, event, event_value, time, parameters, extras, run_remote_endpoint, timestamp} = row
-                        return {
-                          session: session || "",
-                          username: username || "",
-                          application: application || "",
-                          activity: activity || "",
-                          event: event || "",
-                          event_value: event_value || "",
-                          time: time || 0,
-                          parameters: toJsonString(row.parameters),
-                          extras: toJsonString(row.extras),
-                          run_remote_endpoint: run_remote_endpoint || "",
-                          timestamp: timestampMap[id] || 0,
-                        }
-                      })
-                      for (row of rows) {
-                        await writer.appendRow(row)
-                      }
-                      return read()
-                    });
-                  })();
-                });
-              }
-
-              return createParquetFile()
-            })
+          return getIds(localClient, ymd).then(([ids, timestampMap]) => getLogData(remoteClient, ymd, timeDate, ids, timestampMap))
         })
-        return Promise.all(promises)
-      })
+        return serializePromises(promises)
+    })
   })
   .catch(err => console.error(err))
   .finally(() => {
