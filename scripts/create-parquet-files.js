@@ -4,6 +4,9 @@ const {parse} = require("@concord-consortium/hstore-to-json")()
 const parquet = require('parquets');
 const mkdirp = require('mkdirp')
 const format = require('pg-format');
+const Cursor = require("pg-cursor")
+
+const BATCH_SIZE = 1000
 
 const dateRegEx = /^\d\d\d\d-\d\d-\d\d$/
 
@@ -50,7 +53,8 @@ localConnect().then(localClient => {
     return localClient.query(query)
       .then(result => {
         const promises = result.rows.map(row => {
-          const ymd = dateString(row.time_date)
+          const timeDate = row.time_date
+          const ymd = dateString(timeDate)
           const query = {
             text: "SELECT remote_id, extract(epoch from timestamp) as timestamp FROM logs_meta WHERE time >= $1 AND time <= $2",
             values: [startOfDay(ymd), endOfDay(ymd)]
@@ -64,48 +68,65 @@ localConnect().then(localClient => {
               const ids = result.rows.map(row => row.remote_id)
 
               const query = format("SELECT id, session, username, application, activity, event, event_value, extract(epoch from time) as time, parameters, extras, run_remote_endpoint FROM logs WHERE id IN (%L) ORDER BY id", ids)
-              return remoteClient.query(query)
-                .then(async result => {
-                  const rows = result.rows.map(row => {
-                    const {id, session, username, application, activity, event, event_value, time, parameters, extras, run_remote_endpoint, timestamp} = row
-                    return {
-                      session: session || "",
-                      username: username || "",
-                      application: application || "",
-                      activity: activity || "",
-                      event: event || "",
-                      event_value: event_value || "",
-                      time: time || 0,
-                      parameters: toJsonString(row.parameters),
-                      extras: toJsonString(row.extras),
-                      run_remote_endpoint: run_remote_endpoint || "",
-                      timestamp: timestampMap[id] || 0,
-                    }
-                  })
+              const cursor = remoteClient.query(new Cursor(query))
 
-                  const subPath = `./output/${s3Path(row.time_date)}`
-                  mkdirp.sync(subPath)
-                  const outputPath = `${subPath}/${ymd}.parquet`
-                  if (rows.length > 0) {
-                    // create parquet file
-                    console.log(`Creating ${outputPath} with ${rows.length} rows`)
-                    const writer = await parquet.ParquetWriter.openFile(schema, outputPath)
-                    for (row of rows) {
-                      await writer.appendRow(row)
-                    }
-                    return writer.close()
-                  } else {
-                    console.log(`Skipping ${outputPath} - no data found`)
-                  }
-                })
-              })
+              let batchNum = 1
+              const createParquetFile = async () => {
+                const subPath = `./output/${s3Path(timeDate)}`
+                mkdirp.sync(subPath)
+                const outputPath = `${subPath}/${ymd}.parquet`
+                console.log(`Creating ${outputPath} with ${ids.length} rows`)
+                const writer = await parquet.ParquetWriter.openFile(schema, outputPath)
+
+                return new Promise((resolve, reject) => {
+                  (function read() {
+                    cursor.read(BATCH_SIZE, async (err, rows) => {
+                      if (err) {
+                        await writer.close()
+                        return reject(err);
+                      }
+
+                      if (!rows.length) {
+                        await writer.close()
+                        return resolve();
+                      }
+
+                      console.log(`${ymd} ${batchNum++}: inserting ${rows.length} rows into parquet file`)
+
+                      rows = rows.map(row => {
+                        const {id, session, username, application, activity, event, event_value, time, parameters, extras, run_remote_endpoint, timestamp} = row
+                        return {
+                          session: session || "",
+                          username: username || "",
+                          application: application || "",
+                          activity: activity || "",
+                          event: event || "",
+                          event_value: event_value || "",
+                          time: time || 0,
+                          parameters: toJsonString(row.parameters),
+                          extras: toJsonString(row.extras),
+                          run_remote_endpoint: run_remote_endpoint || "",
+                          timestamp: timestampMap[id] || 0,
+                        }
+                      })
+                      for (row of rows) {
+                        await writer.appendRow(row)
+                      }
+                      return read()
+                    });
+                  })();
+                });
+              }
+
+              return createParquetFile()
             })
+        })
         return Promise.all(promises)
       })
   })
   .catch(err => console.error(err))
   .finally(() => {
-    console.log("Parquet files uploaded to S3.")
+    console.log("Parquet files created.")
     process.exit()
   })
 })
