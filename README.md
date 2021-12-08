@@ -28,3 +28,7 @@ Once you have run all 6 scripts you can upload the parquet files to S3 using thi
 `export AWS_PROFILE=qa`
 
 (the aws cli is used instead of the scripts writing directly to S3 as I'm sure it is more performant)
+
+## NOTES:
+
+The outer loop of the create-parquet-files needs to be converted to using an `await` loop - currently the code waits for each id select but this races forward ahead of the data download.  There is no data integrity issue with this but there is a memory issue if there are a lot of ids.
