@@ -146,6 +146,8 @@ localConnect().then(localClient => {
     return localClient.query(query)
       .then(async (result) => {
         for await (const [ids, timestampMap] of getAsyncIds(localClient, result.rows)) {
+          const timeDate = row.time_date
+          const ymd = dateString(timeDate)
           console.log("************ getLogData ", ymd)
           await getLogData(remoteClient, ymd, timeDate, ids, timestampMap)
         }
