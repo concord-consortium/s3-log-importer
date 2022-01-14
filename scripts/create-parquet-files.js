@@ -77,7 +77,7 @@ const asyncCursor = async function* cursor(client, query, logPrefix) {
 	}
 };
 
-const getIds = async (localClient, ymd) => {
+const getIds = async (localClient, timeDate, ymd) => {
   const query = {
     text: "SELECT remote_id, extract(epoch from timestamp) as timestamp FROM logs_meta WHERE time >= $1 AND time <= $2",
     values: [startOfDay(ymd), endOfDay(ymd)]
@@ -92,7 +92,7 @@ const getIds = async (localClient, ymd) => {
     ids.push(parseInt(row.remote_id, 10))
   }
 
-  return [ids, timestampMap]
+  return [ids, timestampMap, timeDate, ymd]
 }
 
 const getLogData = async (remoteClient, ymd, timeDate, ids, timestampMap) => {
@@ -133,7 +133,7 @@ async function* getAsyncIds(localClient, rows) {
     const timeDate = row.time_date
     const ymd = dateString(timeDate)
     console.log("************ getAsyncIds ", ymd)
-    yield await getIds(localClient, ymd)
+    yield await getIds(localClient, timeDate, ymd)
   }
 }
 
@@ -145,9 +145,7 @@ localConnect().then(localClient => {
     }
     return localClient.query(query)
       .then(async (result) => {
-        for await (const [ids, timestampMap] of getAsyncIds(localClient, result.rows)) {
-          const timeDate = row.time_date
-          const ymd = dateString(timeDate)
+        for await (const [ids, timestampMap, timeDate, ymd] of getAsyncIds(localClient, result.rows)) {
           console.log("************ getLogData ", ymd)
           await getLogData(remoteClient, ymd, timeDate, ids, timestampMap)
         }
