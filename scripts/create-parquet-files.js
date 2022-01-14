@@ -128,6 +128,15 @@ const getLogData = async (remoteClient, ymd, timeDate, ids, timestampMap) => {
   console.log(`Created ${outputPath} with ${ids.length} rows`)
 }
 
+async function* getAsyncIds(localClient, rows) {
+  for (const row of rows) {
+    const timeDate = row.time_date
+    const ymd = dateString(timeDate)
+    console.log("************ getAsyncIds ", ymd)
+    yield await getIds(localClient, ymd)
+  }
+}
+
 localConnect().then(localClient => {
   remoteConnect().then(remoteClient => {
     const query = {
@@ -135,14 +144,12 @@ localConnect().then(localClient => {
       values: [startDate, endDate]
     }
     return localClient.query(query)
-      .then(result => {
-        const promises = result.rows.map(row => {
-          const timeDate = row.time_date
-          const ymd = dateString(timeDate)
-          return getIds(localClient, ymd).then(([ids, timestampMap]) => getLogData(remoteClient, ymd, timeDate, ids, timestampMap))
-        })
-        return serializePromises(promises)
-    })
+      .then(async (result) => {
+        for await (const [ids, timestampMap] of getAsyncIds(localClient, result.rows)) {
+          console.log("************ getLogData ", ymd)
+          await getLogData(remoteClient, ymd, timeDate, ids, timestampMap)
+        }
+      })
   })
   .catch(err => console.error(err))
   .finally(() => {
