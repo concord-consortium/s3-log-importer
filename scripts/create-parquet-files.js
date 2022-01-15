@@ -141,7 +141,7 @@ const getTimeDatesArray = (startDate, endDate) => {
 };
 
 localConnect().then(localClient => {
-  remoteConnect().then(remoteClient => {
+  remoteConnect().then(async (remoteClient) => {
     const timeDates = getTimeDatesArray(startDate, endDate)
     for await (const [ids, timestampMap, timeDate, ymd] of getAsyncIds(localClient, timeDates)) {
       console.log("************ getLogData ", ymd)
