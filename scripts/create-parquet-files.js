@@ -43,12 +43,6 @@ const schema = new parquet.ParquetSchema({
 startDate = startOfDay(startDate)
 endDate = endOfDay(endDate)
 
-const serializePromises = (promises) => {
-  return promises.reduce((prev, cur) => {
-    return prev.then(value => Promise.all([...value, cur]))
-  }, Promise.resolve([]))
-}
-
 // adapted from https://github.com/brianc/node-postgres/issues/1839#issuecomment-716840604
 const asyncCursor = async function* cursor(client, query, logPrefix) {
   let batchNum = 1
@@ -128,28 +122,31 @@ const getLogData = async (remoteClient, ymd, timeDate, ids, timestampMap) => {
   console.log(`Created ${outputPath} with ${ids.length} rows`)
 }
 
-async function* getAsyncIds(localClient, rows) {
-  for (const row of rows) {
-    const timeDate = row.time_date
+async function* getAsyncIds(localClient, timeDates) {
+  for (const timeDate of timeDates) {
     const ymd = dateString(timeDate)
-    console.log("************ getAsyncIds ", ymd)
     yield await getIds(localClient, timeDate, ymd)
   }
 }
 
+const getTimeDatesArray = (startDate, endDate) => {
+  const dates = []
+  const now = new Date(startDate)
+  const end = new Date(endDate)
+  while (now <= end) {
+    dates.push(new Date(now))
+    now.setDate(now.getDate()+1)
+  }
+  return dates;
+};
+
 localConnect().then(localClient => {
   remoteConnect().then(remoteClient => {
-    const query = {
-      text: "SELECT DATE(timestamp) AS time_date FROM logs_meta WHERE timestamp >= $1 AND timestamp <= $2 GROUP BY DATE(timestamp) ORDER BY DATE(timestamp) ASC",
-      values: [startDate, endDate]
+    const timeDates = getTimeDatesArray(startDate, endDate)
+    for await (const [ids, timestampMap, timeDate, ymd] of getAsyncIds(localClient, timeDates)) {
+      console.log("************ getLogData ", ymd)
+      await getLogData(remoteClient, ymd, timeDate, ids, timestampMap)
     }
-    return localClient.query(query)
-      .then(async (result) => {
-        for await (const [ids, timestampMap, timeDate, ymd] of getAsyncIds(localClient, result.rows)) {
-          console.log("************ getLogData ", ymd)
-          await getLogData(remoteClient, ymd, timeDate, ids, timestampMap)
-        }
-      })
   })
   .catch(err => console.error(err))
   .finally(() => {
