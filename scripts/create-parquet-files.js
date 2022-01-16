@@ -91,8 +91,12 @@ const getIds = async (localClient, timeDate, ymd) => {
 
 const getLogData = async (remoteClient, ymd, timeDate, ids, timestampMap) => {
   const subPath = `./output/${s3Path(timeDate)}`
-  mkdirp.sync(subPath)
   const outputPath = `${subPath}/${ymd}.parquet`
+  if (ids.length == 0) {
+    console.log(`Skipping ${outputPath} with ${ids.length} rows`)
+    return;
+  }
+  mkdirp.sync(subPath)
   console.log(`Creating ${outputPath} with ${ids.length} rows`)
   const writer = await parquet.ParquetWriter.openFile(schema, outputPath)
 
